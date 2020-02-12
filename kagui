@@ -1,0 +1,80 @@
+#!/bin/sh
+
+# Kagui - a Kdialog APK GUI
+appname="Kagui"
+
+errors=0
+# Require kdialog
+[ -f "$(which kdialog 2>/dev/null)" ] || {
+	echo "ERROR: $appname requires zenity to run; please install it and try again."
+	let errors++
+}
+
+# Require apk (obviously)
+[ -f "$(which apk 2>/dev/null)" ] || {
+	echo "ERROR: $appname requires apk to run; please install it and try again."
+	let errors++
+}
+
+[ $errors -ne 0 ] && {
+	echo "Exiting with $errors fatal errors."
+	exit 1
+}
+
+main_menu() {
+	opt="$(kdialog --title "$appname" --menu "Welcome to $appname.  Select an option below" \
+		"add" "Search / install packages" \
+		"del" "Search / remove installed packages" \
+		"exit" "Exit")"
+	case "$opt" in
+		"add") install ;;
+		"del") uninstall ;;
+		"exit") exit 0 ;;
+		"") exit 0 ;;
+		*) echo "$opt not implemented"
+	esac
+}
+
+install() {
+	search_term="$(search_dialog)"
+	packages="$(kdialog --title "$appname > Install" --checklist "Choose package(s):" \
+		$(apk search -q | grep "$search_term" | awk '{print $1, $1, "off"}') | sed 's/"//g')"
+	passwd="$(get_passwd)"
+	echo "$passwd" | sudo -S apk add --no-progress $packages | track_progress "Installing..."
+	main_menu
+}
+
+uninstall() {
+	search_term="$(search_dialog)"
+	packages="$(kdialog --title "$appname > Uninstall" --checklist "Choose package(s):" \
+		$(apk info -q | grep "$search_term" | awk '{print $1, $1, "off"}') | sed 's/"//g')"
+	passwd="$(get_passwd)"
+	echo "$passwd" | sudo -S apk del $packages | track_progress "Uninstalling..."
+	main_menu
+}
+
+
+search_dialog() {
+	# Generic function to get search term from user and output it to stdout
+	search_term="$(kdialog --title "$appname > Search" --inputbox "Enter search term (blank to return all)")"
+	[ "$?" -eq 0 ] && echo "$search_term" || main_menu
+}
+
+get_passwd() {
+	[ -z "$sudo_passwd" ] && sudo_passwd="$(kdialog --title "$appname > Enter password" --password "Enter your password for sudo.")"
+	echo "$sudo_passwd"
+}
+
+track_progress() {
+	tracker="$(kdialog --progressbar "$1" 100)"
+	while STATUS= read -r line; do
+		step_number="$(echo "$line" | grep -o "^([[:digit:]]\+/[[:digit:]]\+)")"
+		[ -z "$step_number" ] || qdbus $tracker Set "" value "$(echo "$step_number*100" | bc -l | awk -F "." '{print $1}')"
+		qdbus $tracker setLabelText "$line"
+		#echo "$line" | grep '^\[\d{1,3}'
+	done
+	qdbus $tracker close
+	return 0
+}
+
+main_menu
