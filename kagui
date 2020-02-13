@@ -82,6 +82,7 @@ track_progress() {
 		[ -z "$kagui_err" ] || {
 			#kdialog --title "$appname > Error" --textbox /tmp/kagui_err
 			#return 1
+			echo "$line" >> /tmp/kagui_err
 			continue
 		}
 		step_number="$(echo "$line" | grep -o "^([[:digit:]]\+/[[:digit:]]\+)")"
