@@ -6,7 +6,7 @@ appname="Kagui"
 errors=0
 # Require kdialog
 [ -f "$(which kdialog 2>/dev/null)" ] || {
-	echo "ERROR: $appname requires zenity to run; please install it and try again."
+	echo "ERROR: $appname requires kdialog to run; please install it and try again."
 	let errors++
 }
 
@@ -40,7 +40,12 @@ install() {
 	packages="$(kdialog --title "$appname > Install" --checklist "Choose package(s):" \
 		$(apk search -q | grep "$search_term" | awk '{print $1, $1, "off"}') | sed 's/"//g')"
 	passwd="$(get_passwd)"
-	echo "$passwd" | sudo -S apk add --no-progress $packages | track_progress "Installing..."
+	echo "$passwd" | sudo -S apk add --no-progress $packages 2>/tmp/kagui_err | track_progress "Installing..."
+	kagui_err="$(cat /tmp/kagui_err 2>/dev/null)"
+	[ -z "$kagui_err" ] || {
+		kdialog --title "$appname > Error" --textbox /tmp/kagui_err
+	return 1
+	}
 	main_menu
 }
 
@@ -49,7 +54,12 @@ uninstall() {
 	packages="$(kdialog --title "$appname > Uninstall" --checklist "Choose package(s):" \
 		$(apk info -q | grep "$search_term" | awk '{print $1, $1, "off"}') | sed 's/"//g')"
 	passwd="$(get_passwd)"
-	echo "$passwd" | sudo -S apk del $packages | track_progress "Uninstalling..."
+	echo "$passwd" | sudo -S apk del $packages 2>/tmp/kagui_err | track_progress "Uninstalling..."
+	kagui_err="$(cat /tmp/kagui_err 2>/dev/null)"
+	[ -z "$kagui_err" ] || {
+		kdialog --title "$appname > Error" --textbox /tmp/kagui_err
+	return 1
+	}
 	main_menu
 }
 
@@ -68,6 +78,12 @@ get_passwd() {
 track_progress() {
 	tracker="$(kdialog --progressbar "$1" 100)"
 	while STATUS= read -r line; do
+		kagui_err="$(cat /tmp/kagui_err 2>/dev/null)"
+		[ -z "$kagui_err" ] || {
+			#kdialog --title "$appname > Error" --textbox /tmp/kagui_err
+			#return 1
+			continue
+		}
 		step_number="$(echo "$line" | grep -o "^([[:digit:]]\+/[[:digit:]]\+)")"
 		[ -z "$step_number" ] || qdbus $tracker Set "" value "$(echo "$step_number*100" | bc -l | awk -F "." '{print $1}')"
 		qdbus $tracker setLabelText "$line"
