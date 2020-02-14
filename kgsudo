@@ -1,0 +1,3 @@
+#!/bin/sh
+
+kdialog --title "Provide sudo password" --password "Please enter your password for sudo."
