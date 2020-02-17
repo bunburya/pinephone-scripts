@@ -113,7 +113,6 @@ class APKHandler:
                 return
     
     def add_del_upgrade(self, cmd, *other_args, packages=None):
-        # TODO: Work in arbitrary args
         if cmd == 'add' or cmd == 'del':
             try:
                 args = [cmd] + list(other_args) + packages
@@ -141,41 +140,20 @@ class APKHandler:
         return self.add_del_upgrade('upgrade')
     
     def add_del_upgrade_handler(self, i, proc):
-        #print('code is', i)
         groups = proc.match.groups()
         response = {}
-        #print(groups)
-        if i == 0:
-            # ERROR
-            msg, = groups
-            response['type'] = 'ERROR'
-            response['message'] = msg
-            response['description'] = 'Command failed'
-        elif i == 1:
-            # OK
-            msg, = groups
-            response['type'] = 'OK'
-            response['message'] = msg
-            response['description'] = 'Command completed successfully'
-        elif i == 2:
-            # Being asked for sudo password
-            proc.send(self.sudo_pass + '\n')
-            response['type'] = 'PROMPT'
-            response['description'] = 'Asked for sudo password'
-        elif i == 3:
-            # Being asked again for sudo password
-            proc.send(self.sudo_pass + '\n')
-            response['type'] = 'PROMPT'
-            response['description'] = 'Asked for sudo password'
-        elif i == 4:
-            # Failed because sudo password is wrong
-            response['type'] = 'ERROR'
-            response['description'] = 'Failed because sudo password is wrong'
-        elif i == 5:
-            # We received a newline, probably from sudo after providing our password
-            response['type'] = 'NEWLINE'
-            response['description'] = 'Received a newline on its own'
-        elif i == 6:
+        # TODO: Handle "generic" handlers (ie, sudo and apk) in separate
+        # functions
+        response = self.apk_handler(i, proc, 0)
+        if response:
+            return response
+        response = self.sudo_handler(i, proc, 2)
+        if response:
+            return response
+        response = {}
+        if i == 6:
+            # We have received a message indicating that an intermediate
+            # step in an install / uninstall has occurred
             step_num, num_steps, msg = groups
             response['type'] = 'PROGRESS'
             response['step'] = int(step_num)
@@ -184,23 +162,28 @@ class APKHandler:
             response['description'] = f'Step {step_num} of {num_steps}'
             response['message'] = msg
         elif i == 7:
+            # A post-install (or possibly post-uninstall) trigger has
+            # been executed.
             pkg, version = groups
             response['type'] = 'TRIGGER'
             response['package'] = pkg
             response['version'] = version
             response['description'] = f'Executing {pkg}-{version}.trigger'
         elif i == 8:
+            # Fetching an up-to-date repository.
             repo, = groups
             response['type'] = 'FETCH'
             response['repo'] = repo
             response['description'] = f'Fetching repository {repo}'
         elif i == 9:
+            # Configuring a new TTY.
             port, baud_rate = groups
             response['type'] = 'GETTY'
             response['port'] = port
             response['baud_rate'] = int(baud_rate)
             response['description'] = f'Configuring getty on port {port} with baud rate {baud_rate}'
         elif i == 10:
+            # Some other message.
             msg, = groups
             response['type'] = 'OTHER'
             response['message'] = msg
@@ -239,3 +222,55 @@ class APKHandler:
             response['description'] = desc
         return response
     
+    def update(self):
+        return self.apk('update', self.UPDATE_EXPECT, self.update_handler)
+    
+    def update_handler(self, i, proc):
+        groups = proc.match.groups()
+        response = self.apk_handler(i, proc, 0)
+        if response:
+            return response
+        response = self.sudo_handler(i, proc, 2)
+        if response:
+            return response
+        response = {}
+        #TODO: Fetch, version, update time
+
+    def apk_handler(i, proc, n):
+        response = {}
+        groups = proc.match.groups()
+        if i == n:
+            # ERROR
+            msg, = groups
+            response['type'] = 'ERROR'
+            response['message'] = msg
+            response['description'] = 'Command failed'
+        elif i == n+1:
+            # OK
+            msg, = groups
+            response['type'] = 'OK'
+            response['message'] = msg
+            response['description'] = 'Command completed successfully'
+        return response
+    
+    def sudo_handler(i, proc, n):
+        response = {}
+        if i == n:
+            # Being asked for sudo password
+            proc.send(self.sudo_pass + '\n')
+            response['type'] = 'PROMPT'
+            response['description'] = 'Asked for sudo password'
+        elif i == n+1:
+            # Being asked again for sudo password
+            proc.send(self.sudo_pass + '\n')
+            response['type'] = 'PROMPT'
+            response['description'] = 'Asked for sudo password'
+        elif i == n+2:
+            # Failed because sudo password is wrong
+            response['type'] = 'ERROR'
+            response['description'] = 'Failed because sudo password is wrong'
+        elif i == +3:
+            # We received a newline, probably from sudo after providing our password
+            response['type'] = 'NEWLINE'
+            response['description'] = 'Received a newline on its own'
+        return response
