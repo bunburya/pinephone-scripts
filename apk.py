@@ -25,7 +25,7 @@ class APKHandler:
     ERROR = re_compile(r'^ERROR: (.+)\r\n')
     OK = re_compile(r'^OK: (.+)\r\n')
     PROGRESS = re_compile(r'^\((\d+)/(\d+)\) (.+)\r\n')
-    EXEC_TRIGGER = re_compile(r'^Executing ' + PKG_BUILDER + r'\.trigger\r\n')
+    EXEC = re_compile(r'^Executing ' + PKG_BUILDER + r'\.(.+)\r\n')
     FETCH_REPO = re_compile(r'^fetch (.+)\r\n')
     REPO_UPDATE_TIME = re_compile('^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.*\d*) \[(.+)\]\r\n')
     REPO_VERSION = re_compile(r'^(v\d{8}-\d{4}-\w{11}) \[(.+)\]\r\n')
@@ -60,7 +60,7 @@ class APKHandler:
     # repetition)
     ADD_DEL_UPGRADE_EXPECT = APK_GENERIC + SUDO_GENERIC + [
         PROGRESS,           # 6: Step message
-        EXEC_TRIGGER,       # 7: Executing trigger
+        EXEC,               # 7: Executing a script after installation (trigger, post-install, etc)
         FETCH_REPO,         # 8: Fetching a repo
         CONFIG_GETTY,       # 9: Configuring a getty
         ANYTHING            # 10: Catch-all
@@ -141,7 +141,8 @@ class APKHandler:
     
     def add_del_upgrade_handler(self, i, proc):
         groups = proc.match.groups()
-        response = {}
+        print(groups)
+        print(i)
         # TODO: Handle "generic" handlers (ie, sudo and apk) in separate
         # functions
         response = self.apk_handler(i, proc, 0)
@@ -164,11 +165,11 @@ class APKHandler:
         elif i == 7:
             # A post-install (or possibly post-uninstall) trigger has
             # been executed.
-            pkg, version = groups
-            response['type'] = 'TRIGGER'
+            pkg, version, exec_type = groups
+            response['type'] = 'EXEC'
             response['package'] = pkg
             response['version'] = version
-            response['description'] = f'Executing {pkg}-{version}.trigger'
+            response['description'] = f'Executing {pkg}-{version}.{exec_type}'
         elif i == 8:
             # Fetching an up-to-date repository.
             repo, = groups
@@ -236,7 +237,7 @@ class APKHandler:
         response = {}
         #TODO: Fetch, version, update time
 
-    def apk_handler(i, proc, n):
+    def apk_handler(self, i, proc, n):
         response = {}
         groups = proc.match.groups()
         if i == n:
@@ -253,7 +254,7 @@ class APKHandler:
             response['description'] = 'Command completed successfully'
         return response
     
-    def sudo_handler(i, proc, n):
+    def sudo_handler(self, i, proc, n):
         response = {}
         if i == n:
             # Being asked for sudo password
@@ -269,7 +270,7 @@ class APKHandler:
             # Failed because sudo password is wrong
             response['type'] = 'ERROR'
             response['description'] = 'Failed because sudo password is wrong'
-        elif i == +3:
+        elif i == n+3:
             # We received a newline, probably from sudo after providing our password
             response['type'] = 'NEWLINE'
             response['description'] = 'Received a newline on its own'
