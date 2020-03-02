@@ -11,6 +11,11 @@ def re_compile(p):
 
 class APKHandler:
     
+    ## Config values
+    TIMEOUT = None # Should be reasonably high (or None) as large packages can take a while to install
+    
+    ## Tuples of regex patterns, for use with pexpect
+
     # These are not compiled because we use them to build other patterns
     VERSION_BUILDER = r'(\d+[\d\-\.r]+)'
     PKG_BUILDER = r'(\w+(?:-\w+)*)-' + VERSION_BUILDER
@@ -96,22 +101,29 @@ class APKHandler:
         self.sudo_pass = sudo_pass
     
     def apk(self, args, expects, handler, with_sudo=False):
+        self._output = []
         if with_sudo:
             cmd = 'sudo'
             args.insert(0, 'apk')
         else:
             cmd = 'apk'
-        proc = spawn(cmd, args, encoding='utf-8')#, maxread=1)
+        proc = spawn(cmd, args, timeout=self.TIMEOUT, encoding='utf-8')#, maxread=1)
         #expects.append(re.compile(r'^(\w+)', flags=re.MULTILINE)) # Testing
         while True:
             try:
                 #print('expecting')
                 i = proc.expect(expects)
+                if proc.match:
+                    self._output.append(proc.match.string)
                 #print('found', i)
                 yield handler(i, proc)
             except (EOF, TIMEOUT):
-                return
+                return self.output
     
+    @property
+    def output(self):
+        return ''.join(self._output).split('\r\n')
+
     def add_del_upgrade(self, cmd, *other_args, packages=None):
         if cmd == 'add' or cmd == 'del':
             try:
@@ -200,7 +212,7 @@ class APKHandler:
         else:
             expects = self.SEARCH_EXPECT
         if query:
-            args.append(query.split(' '))
+            args += query.split(' ')
         return self.apk(args, expects, self.search_handler)
     
     def get_installed(self):
@@ -224,7 +236,7 @@ class APKHandler:
         return response
     
     def update(self):
-        return self.apk('update', self.UPDATE_EXPECT, self.update_handler)
+        return self.apk(['update'], self.UPDATE_EXPECT, self.update_handler, with_sudo=True)
     
     def update_handler(self, i, proc):
         groups = proc.match.groups()
@@ -235,7 +247,23 @@ class APKHandler:
         if response:
             return response
         response = {}
-        #TODO: Fetch, version, update time
+        if i == 6:
+            url, = groups
+            response['type'] = 'FETCH'
+            response['url'] = url
+            response['description'] = f'Fetched URL {url}'
+        elif i == 7:
+            time, url = groups
+            response['type'] = 'UPDATE_TIME'
+            response['time'] = time
+            response['url'] = url
+        elif i == 8:
+            version, url = groups
+            response['type'] = 'UPDATE_VERSION'
+            response['version'] = version
+            response['url'] = url
+            response['description'] = f'Got updated repo version {version} from {url}'
+        return response
 
     def apk_handler(self, i, proc, n):
         response = {}
@@ -275,3 +303,34 @@ class APKHandler:
             response['type'] = 'NEWLINE'
             response['description'] = 'Received a newline on its own'
         return response
+
+def test(h, fn, *args, **kwargs):
+    r = []
+    for line in fn(*args, **kwargs):
+        r.append(line)
+        print(line)
+    return r, h.output
+
+def update():
+    h = APKHandler('1234')
+    return test(h, h.update)
+
+def add(*packages):
+    h = APKHandler('1234')
+    return test(h, h.add, *packages)
+
+def remove(*packages):
+    h = APKHandler('1234')
+    return test(h, h.remove, *packages)
+
+def upgrade():
+    h = APKHandler('1234')
+    return test(h, h.upgrade)
+
+def search(query):
+    h = APKHandler('1234')
+    return test(h, h.search, query)
+
+def get_installed():
+    h = APKHandler('1234')
+    return test(h, h.get_installed)
